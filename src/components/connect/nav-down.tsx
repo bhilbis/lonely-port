@@ -3,8 +3,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { motion } from 'motion/react'
-import { Home, Mail, ArrowLeft, Settings } from 'lucide-react'
-import { Button } from '../ui/button'
+import { Home, Mail } from 'lucide-react'
 
 const NavDown = () => {
   return (
@@ -21,12 +20,6 @@ const NavDown = () => {
         <Link href="mailto:bhilbis123@gmail.com" className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors rounded-full hover:bg-black/20 dark:hover:bg-gray-100/20">
           <Mail size={20} />
         </Link>
-        <Link href="/" className="p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors rounded-full hover:bg-black/20 dark:hover:bg-gray-100/20">
-          <ArrowLeft size={20} />
-        </Link>
-        <Button variant="ghost" className='rounded-full hover:bg-black/20 dark:hover:bg-gray-100/20 hover:cursor-pointer'>
-          <Settings />
-        </Button>
       </motion.div>
     </div>
   )

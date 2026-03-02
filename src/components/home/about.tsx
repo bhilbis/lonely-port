@@ -9,9 +9,13 @@ import { achievements, experience, interests } from '@/lib/data';
 
 export function About() {
   return (
-    <section id='about' className='min-h-screen flex justify-center items-center'>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className='mb-12'>
+    <section id='about' className='relative scroll-mt-28 py-20 sm:py-24 lg:py-28'>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-24 -translate-y-full bg-gradient-to-b from-[oklch(0.12_0_0)] to-[oklch(0.12_0_0/0)] sm:h-32"
+      />
+      <div className="relative z-10 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className='mb-12 sm:mb-14'>
           <div className='w-full flex justify-center items-center'>
             <div className="flex items-center text-center gap-2 px-4 py-2 bg-black/5 dark:bg-white/5 backdrop-blur-sm rounded-full border border-black/10 dark:border-white/10 mb-4 sm:mb-6">
               <span className="text-black/80 dark:text-white/80 text-md font-medium"><span className='text-lg'>🧑‍🦱</span> Personal</span>

@@ -11,8 +11,8 @@ import CollaborationCTA from './collab-cta';
 const ProjectsSection = () => {
   return (
     <ProjectProvider>
-      <section className="min-h-screen relative overflow-hidden">
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6">
+      <div className="relative min-h-screen overflow-hidden">
+        <div className="relative z-10">
           <FilterToggle />
           <FilterSection />
           
@@ -24,7 +24,7 @@ const ProjectsSection = () => {
           <ProjectControls />
           <CollaborationCTA />
         </div>
-      </section>
+      </div>
     </ProjectProvider>
   );
 };

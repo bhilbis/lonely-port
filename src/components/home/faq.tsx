@@ -26,60 +26,62 @@ const faqItems = [
 
 export function FAQ() {
   return (
-    <section id="faq" className="py-20 max-w-7xl w-full">
-      <div className='w-full flex justify-center items-center'>
-          <div className="flex items-center text-center gap-2 px-4 py-2 bg-black/5 dark:bg-white/5  backdrop-blur-sm rounded-full border border-black/10 dark:border-white/10  mb-4 sm:mb-6">
-              <span className="text-black/80 dark:text-white/80 text-md font-medium"><span className='text-lg'>🗨️</span> FAQ</span>
-          </div>
-      </div>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        viewport={{ once: true }}
-        className="text-center mb-12"
-      >
-        <h2 className="text-4xl md:text-5xl font-bold mb-4">Frequently Asked Questions</h2>
-        <p className="text-lg max-w-3xl text-gray-700 dark:text-gray-300 mx-auto">
-          Here are answers to some common questions about my services and process.
-          If you don&apos;t see your question here, feel free to reach out directly.
-        </p>
-      </motion.div>
+    <section id="faq" className="relative w-full scroll-mt-28 py-20 sm:py-24 lg:py-28">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className='flex w-full items-center justify-center'>
+            <div className="mb-4 flex items-center gap-2 rounded-full border border-black/10 bg-black/5 px-4 py-2 text-center backdrop-blur-sm dark:border-white/10 dark:bg-white/5 sm:mb-6">
+                <span className="text-md font-medium text-black/80 dark:text-white/80"><span className='text-lg'>🗨️</span> FAQ</span>
+            </div>
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          viewport={{ once: true }}
+          className="mb-12 text-center"
+        >
+          <h2 className="mb-4 text-4xl font-bold md:text-5xl">Frequently Asked Questions</h2>
+          <p className="mx-auto max-w-3xl text-lg text-gray-700 dark:text-gray-300">
+            Here are answers to some common questions about my services and process.
+            If you don&apos;t see your question here, feel free to reach out directly.
+          </p>
+        </motion.div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        viewport={{ once: true }}
-        className="w-full"
-      >
-        <Accordion type="single" collapsible>
-          {faqItems.map((item, index) => (
-            <AccordionItem key={index} value={`item-${index}`} className="group border-b">
-              <AccordionTrigger className="py-6 text-left font-semibold text-2xl hover:no-underline">
-                <span>
-                    {item.question}
-                </span>
-                <div className="relative w-6 h-6 flex items-center justify-center hover:cursor-pointer">
-                    <Plus className="h-5 w-5 absolute transition-transform duration-300 group-data-[state=open]:rotate-90 group-data-[state=open]:opacity-0" />
-                    <Minus className="h-5 w-5 absolute transition-transform duration-300 group-data-[state=open]:rotate-0 group-data-[state=closed]:-rotate-90 group-data-[state=closed]:opacity-0" />
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="text-lg">
-                {Array.isArray(item.answer) ? (
-                    <ul className="list-disc pl-6 space-y-2">
-                    {item.answer.map((point, i) => (
-                        <li key={i}>{point}</li>
-                    ))}
-                    </ul>
-                ) : (
-                    item.answer
-                )}
-                </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          viewport={{ once: true }}
+          className="w-full"
+        >
+          <Accordion type="single" collapsible>
+            {faqItems.map((item, index) => (
+              <AccordionItem key={index} value={`item-${index}`} className="group border-b">
+                <AccordionTrigger className="py-6 text-left text-2xl font-semibold hover:no-underline">
+                  <span>
+                      {item.question}
+                  </span>
+                  <div className="relative flex h-6 w-6 items-center justify-center hover:cursor-pointer">
+                      <Plus className="absolute h-5 w-5 transition-transform duration-300 group-data-[state=open]:rotate-90 group-data-[state=open]:opacity-0" />
+                      <Minus className="absolute h-5 w-5 transition-transform duration-300 group-data-[state=closed]:-rotate-90 group-data-[state=closed]:opacity-0 group-data-[state=open]:rotate-0" />
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="text-lg">
+                  {Array.isArray(item.answer) ? (
+                      <ul className="list-disc space-y-2 pl-6">
+                      {item.answer.map((point, i) => (
+                          <li key={i}>{point}</li>
+                      ))}
+                      </ul>
+                  ) : (
+                      item.answer
+                  )}
+                  </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </motion.div>
+      </div>
     </section>
   );
 }
