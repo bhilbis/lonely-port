@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { NavBar } from "@/components/navigations";
-import { ThemeInitializer } from "@/context/theme-context";
-import CursorEffect from "@/components/ui/cursor-effect";
-import ClientWrapper from "@/components/ui/ui-wrapper";
-import { LenisProvider } from "@/lib/hooks/use-lenis-scroll";
 import Script from "next/script";
 
 const inter = Inter({
@@ -86,17 +81,8 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body
-        className={`antialiased ${inter.variable} transition-colors`}
-      >
-        <ThemeInitializer />
-        <NavBar />
-        <CursorEffect />
-        <LenisProvider >
-            <ClientWrapper>
-              {children}
-            </ClientWrapper>
-        </LenisProvider>
+      <body className={`antialiased ${inter.variable}`}>
+        {children}
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "@/app/globals.css";
 import NavDown from "@/components/connect/nav-down";
+import { ThemeInitializer } from "@/context/theme-context";
 
 export const metadata: Metadata = {
   title: "Connect With Me",
@@ -14,6 +15,7 @@ export default function ConnectLayout({
 }>) {
   return (
     <div>
+      <ThemeInitializer />
       <NavDown/>
       {children}
     </div>
