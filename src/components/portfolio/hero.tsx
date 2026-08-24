@@ -144,11 +144,11 @@ export default function Hero({ started }: { started: boolean }) {
           style={{ background: "var(--pf-line-2)", transform: "scaleX(0)" }}
         />
         <div className="overflow-hidden py-4 md:py-5" aria-hidden="true">
-          <div className="pf-marquee-track" style={{ "--pf-marquee-dur": "40s" } as React.CSSProperties}>
+          <div className="pf-marquee-track" style={{ "--pf-marquee-dur": "80s" } as React.CSSProperties}>
             {[0, 1].map((half) => (
               <div key={half} className="flex shrink-0 items-center">
-                {MARQUEE_ITEMS.map((item) => (
-                  <span key={`${half}-${item}`} className="flex items-center">
+                {[...MARQUEE_ITEMS, ...MARQUEE_ITEMS].map((item, i) => (
+                  <span key={`${half}-${i}`} className="flex items-center">
                     <span
                       className="pf-display px-6 md:px-10 whitespace-nowrap"
                       style={{

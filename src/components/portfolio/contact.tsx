@@ -165,7 +165,7 @@ export default function Contact() {
 
         <p
           className="pf-mono mt-5 text-center md:text-left"
-          style={{ fontSize: 8, letterSpacing: "0.3em", color: "rgba(140,160,210,0.22)" }}
+          style={{ fontSize: 8, letterSpacing: "0.3em", color: "rgba(172,189,230,0.5)" }}
         >
           DESIGNED &amp; ENGINEERED BY FLEXSY BILBIS — SIGNAL FROM THE VOID
         </p>

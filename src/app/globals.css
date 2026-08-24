@@ -203,8 +203,8 @@ body {
   --pf-line:    rgba(126, 152, 220, 0.14);
   --pf-line-2:  rgba(126, 152, 220, 0.28);
   --pf-ink:     #eef2ff;
-  --pf-ink-dim: rgba(190, 205, 240, 0.62);
-  --pf-ink-faint: rgba(140, 160, 210, 0.38);
+  --pf-ink-dim: rgba(205, 218, 248, 0.85);
+  --pf-ink-faint: rgba(172, 189, 230, 0.65);
   --pf-blue:    #5b7fff;
   --pf-blue-soft: rgba(91, 127, 255, 0.5);
   --pf-gold:    #e8c07a;
@@ -260,7 +260,7 @@ body {
 /* outlined display text (hollow) */
 .pf-outline-text {
   color: transparent;
-  -webkit-text-stroke: 1px rgba(160, 182, 240, 0.34);
+  -webkit-text-stroke: 1px rgba(172, 192, 246, 0.55);
 }
 
 /* hairline links with sliding underline */
@@ -292,6 +292,7 @@ body {
 .pf-marquee-track {
   display: flex;
   width: max-content;
+  will-change: transform;
   animation: pf-marquee var(--pf-marquee-dur, 36s) linear infinite;
 }
 

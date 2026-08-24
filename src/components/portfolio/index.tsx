@@ -26,6 +26,7 @@ const NAV_LINKS = [
 
 export default function Portfolio() {
   const [loaded, setLoaded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const lenisRef = useRef<Lenis | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -55,13 +56,13 @@ export default function Portfolio() {
     };
   }, []);
 
-  /* lock scroll during preloader */
+  /* lock scroll during preloader or while the mobile menu is open */
   useEffect(() => {
     const lenis = lenisRef.current;
     if (!lenis) return;
-    if (!loaded) lenis.stop();
+    if (!loaded || menuOpen) lenis.stop();
     else lenis.start();
-  }, [loaded]);
+  }, [loaded, menuOpen]);
 
   /* nav entrance */
   useEffect(() => {
@@ -74,7 +75,11 @@ export default function Portfolio() {
   }, [loaded]);
 
   const scrollTo = (href: string) => {
-    lenisRef.current?.scrollTo(href, { duration: 1.4 });
+    setMenuOpen(false);
+    const lenis = lenisRef.current;
+    if (!lenis) return;
+    lenis.start();
+    lenis.scrollTo(href, { duration: 1.4, force: true });
   };
 
   return (
@@ -157,25 +162,92 @@ export default function Portfolio() {
             ))}
           </ul>
 
-          {/* mobile: jump straight to contact */}
+          {/* mobile: hamburger */}
           <button
             type="button"
             data-cursor
-            onClick={() => scrollTo("#contact")}
-            className="md:hidden pf-mono cursor-pointer"
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.22em",
-              textTransform: "uppercase",
-              color: "var(--pf-ink-dim)",
-              background: "none",
-              border: 0,
-            }}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+            className="md:hidden relative h-8 w-9 cursor-pointer"
+            style={{ background: "none", border: 0 }}
           >
-            Contact
+            <span
+              className="absolute left-1.5 right-1.5 h-px transition-all duration-300"
+              style={{
+                background: "var(--pf-ink)",
+                top: menuOpen ? "50%" : "38%",
+                transform: menuOpen ? "rotate(45deg)" : "none",
+              }}
+            />
+            <span
+              className="absolute left-1.5 right-1.5 h-px transition-all duration-300"
+              style={{
+                background: "var(--pf-ink)",
+                top: menuOpen ? "50%" : "62%",
+                transform: menuOpen ? "rotate(-45deg)" : "none",
+              }}
+            />
           </button>
         </nav>
       </header>
+
+      {/* mobile menu overlay */}
+      <div
+        className="md:hidden fixed inset-0 z-[84] flex flex-col justify-center px-8 transition-all duration-500"
+        style={{
+          background: "rgba(3,3,8,0.96)",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          opacity: menuOpen ? 1 : 0,
+          pointerEvents: menuOpen ? "auto" : "none",
+        }}
+        aria-hidden={!menuOpen}
+      >
+        <ul className="flex flex-col gap-2">
+          {NAV_LINKS.map((l, i) => (
+            <li
+              key={l.href}
+              style={{
+                transition: "opacity 0.5s ease, transform 0.5s cubic-bezier(0.2,1,0.3,1)",
+                transitionDelay: menuOpen ? `${0.08 + i * 0.06}s` : "0s",
+                opacity: menuOpen ? 1 : 0,
+                transform: menuOpen ? "translateY(0)" : "translateY(26px)",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => scrollTo(l.href)}
+                className="pf-display flex items-baseline gap-4 cursor-pointer py-2"
+                style={{
+                  fontSize: "clamp(2.2rem, 9vw, 3.2rem)",
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  color: "var(--pf-ink)",
+                  background: "none",
+                  border: 0,
+                }}
+              >
+                <span className="pf-mono" style={{ fontSize: 11, color: "var(--pf-blue)" }}>
+                  {l.index}
+                </span>
+                {l.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <p
+          className="pf-label mt-14"
+          style={{
+            fontSize: 8,
+            transition: "opacity 0.5s ease 0.35s",
+            opacity: menuOpen ? 1 : 0,
+          }}
+        >
+          AoiXsy — Signal from the void
+        </p>
+      </div>
 
       {/* content */}
       <main className="relative z-10">
