@@ -195,3 +195,129 @@ body {
   animation: float infinite ease-in-out;
 }
 
+/* ═══════════════════════ PORTFOLIO — "Signal from the Void" ═══════════════ */
+
+.pf-root {
+  --pf-void:    #030308;
+  --pf-surface: #07070f;
+  --pf-line:    rgba(126, 152, 220, 0.14);
+  --pf-line-2:  rgba(126, 152, 220, 0.28);
+  --pf-ink:     #eef2ff;
+  --pf-ink-dim: rgba(190, 205, 240, 0.62);
+  --pf-ink-faint: rgba(140, 160, 210, 0.38);
+  --pf-blue:    #5b7fff;
+  --pf-blue-soft: rgba(91, 127, 255, 0.5);
+  --pf-gold:    #e8c07a;
+
+  background: var(--pf-void);
+  color: var(--pf-ink);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+.pf-root ::selection {
+  background: rgba(91, 127, 255, 0.85);
+  color: #fff;
+}
+
+.pf-display {
+  font-family: var(--font-syne), var(--font-inter), sans-serif;
+}
+
+.pf-mono {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+/* mission-control micro label */
+.pf-label {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--pf-ink-faint);
+}
+
+/* film grain overlay */
+.pf-grain::after {
+  content: "";
+  position: fixed;
+  inset: -100%;
+  z-index: 80;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: pf-grain-shift 0.9s steps(4) infinite;
+}
+
+@keyframes pf-grain-shift {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(-2%, 1.4%); }
+  50%  { transform: translate(1.6%, -1.1%); }
+  75%  { transform: translate(-1.2%, -1.8%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* outlined display text (hollow) */
+.pf-outline-text {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(160, 182, 240, 0.34);
+}
+
+/* hairline links with sliding underline */
+.pf-underline {
+  position: relative;
+}
+.pf-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  height: 1px;
+  width: 100%;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right center;
+  transition: transform 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+}
+.pf-underline:hover::after {
+  transform: scaleX(1);
+  transform-origin: left center;
+}
+
+/* marquee */
+@keyframes pf-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.pf-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: pf-marquee var(--pf-marquee-dur, 36s) linear infinite;
+}
+
+@keyframes pf-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes pf-ping {
+  0%   { transform: scale(1); opacity: 0.6; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes pf-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.15; }
+}
+.pf-blink { animation: pf-blink 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-root *,
+  .pf-root *::before,
+  .pf-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

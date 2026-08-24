@@ -5,7 +5,6 @@ const columns = [
     heading: "Connect",
     links: [
       { label: "GitHub", href: "https://github.com/bhilbis", icon: Github },
-      // { label: "Twitter / X", href: "https://x.com", icon: Twitter },
       { label: "LinkedIn", href: "https://www.linkedin.com/in/flexsy-bilbis-triwibowo/", icon: Linkedin },
     ],
   },

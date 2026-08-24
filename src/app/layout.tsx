@@ -1,11 +1,23 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Syne, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
 
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+});
+
+const syne = Syne({
+  subsets: ["latin"],
+  variable: "--font-syne",
+  weight: ["400", "500", "600", "700", "800"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+  weight: ["400", "500", "600"],
 });
 
 const siteUrl = "https://aoixsy-portfolio.vercel.app";
@@ -81,7 +93,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`antialiased ${inter.variable}`}>
+      <body className={`antialiased ${inter.variable} ${syne.variable} ${jetbrainsMono.variable}`}>
         {children}
       </body>
     </html>
