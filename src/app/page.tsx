@@ -1,535 +1,656 @@
 "use client";
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Sky, Stars, Sparkles, Float } from "@react-three/drei";
-import { useRef, useEffect, useMemo, useState, Suspense, useCallback } from "react";
-import gsap from "gsap";
+import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
+import { animate } from "animejs";
+import gsap from "gsap";
 
-// ─── Camera ───────────────────────────────────────────────────────────────────
-function CameraRig({
-  scroll,
-  mouse,
-}: {
-  scroll: React.MutableRefObject<number>;
-  mouse: React.MutableRefObject<{ x: number; y: number }>;
-}) {
-  const { camera } = useThree();
+/* ── math ─────────────────────────────────────────────────────────────────── */
+const lerp  = (a: number, b: number, t: number) => a + (b - a) * t;
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const sm    = (e0: number, e1: number, x: number) => {
+  const t = clamp((x - e0) / (e1 - e0 || 1), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+/* ── circular star sprite ─────────────────────────────────────────────────── */
+function makeSprite(): THREE.Texture {
+  const S = 64, cv = document.createElement("canvas");
+  cv.width = cv.height = S;
+  const ctx = cv.getContext("2d")!;
+  const g = ctx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  g.addColorStop(0,    "rgba(255,255,255,1)");
+  g.addColorStop(0.12, "rgba(200,222,255,0.96)");
+  g.addColorStop(0.40, "rgba(80,122,220,0.28)");
+  g.addColorStop(1,    "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(cv);
+}
+
+/*
+ * Seamless loop opacity (p loops 0–1)
+ *
+ * Hero  : bookend — visible at both p=0 AND p=1 (start = end, loop is invisible)
+ *         full  : 0.00–0.10 and 0.90–1.00
+ *         fadeout: 0.10–0.22   |  fadein: 0.78–0.90
+ *
+ * Journey: appears in the middle of the flight
+ *         fadein: 0.34–0.45   |  peak: 0.45–0.55   |  fadeout: 0.55–0.66
+ */
+function secOp(idx: number, p: number): number {
+  if (idx === 0) {
+    const a = sm(0.22, 0.10, p);   // 1 → 0  (fades out 0.10→0.22)
+    const b = sm(0.78, 0.90, p);   // 0 → 1  (fades in  0.78→0.90)
+    return Math.max(a, b);
+  }
+  if (idx === 1) return sm(0.34, 0.45, p) * sm(0.66, 0.55, p);
+  return 0;
+}
+
+/* ══════════════════════════════ COMPONENT ════════════════════════════════ */
+export default function ComingSoon() {
+  const mountRef     = useRef<HTMLDivElement>(null);
+  const loaderRef    = useRef<HTMLDivElement>(null);
+  const loaderNumRef = useRef<HTMLSpanElement>(null);
+  const loaderBarRef = useRef<HTMLDivElement>(null);
+  const sec0         = useRef<HTMLDivElement>(null);
+  const sec1         = useRef<HTMLDivElement>(null);
+
+  const INIT_LP  = 0.05;                      // start inside hero zone
+  const INIT_CAM = 80 - INIT_LP * 200;        // = 70
+
+  const targetP  = useRef(INIT_LP);
+  const scrollP  = useRef(INIT_LP);
+  const scrollV  = useRef(0);
+  const camZ     = useRef(INIT_CAM);
+  const mouseX   = useRef(0);
+  const mouseY   = useRef(0);
+  const heroLive = useRef(false);
+  const prevLP   = useRef(INIT_LP);
+  const rafId    = useRef(0);
+
+  const [mounted,    setMounted]    = useState(false);
+  const [isMobile,   setIsMobile]   = useState(false);
+  const [loaderDone, setLoaderDone] = useState(false);
 
   useEffect(() => {
-    camera.position.set(0, 2, 15);
-    gsap.to(camera.position, { z: 8, duration: 3.0, ease: "power3.inOut", delay: 0.2 });
-  }, [camera]);
+    const mob = window.innerWidth < 768 || "ontouchstart" in window;
+    setIsMobile(mob);
+    setMounted(true);
+  }, []);
 
-  useFrame(() => {
-    const tx = scroll.current * 22;
-    const ty = 1.8 + mouse.current.y * 0.5;
-    camera.position.x += (tx - camera.position.x) * 0.042;
-    camera.position.y += (ty - camera.position.y) * 0.022;
-  });
-
-  return null;
-}
-
-// ─── Cloud puff ───────────────────────────────────────────────────────────────
-const CLOUD_MAT = new THREE.MeshStandardMaterial({
-  color: "#d8eeff",
-  transparent: true,
-  opacity: 0.58,
-  roughness: 1,
-  metalness: 0,
-  depthWrite: false,
-});
-
-function CloudPuff({ pos, sc = 1, s = 1 }: { pos: [number,number,number]; sc?: number; s?: number }) {
-  const offsets = useMemo<[number,number,number][]>(() => [
-    [0, 0, 0],
-    [-(0.9 + (s % 3) * 0.15), -0.3, 0.1],
-    [(1.0 + (s % 2) * 0.25), -0.2, -0.1],
-    [(s % 4) * 0.08, 0.8 + (s % 2) * 0.15, 0.2],
-    [-0.3, 0.6, -0.3],
-  ], [s]);
-
-  const sizes = useMemo(() =>
-    [1.2, 0.82, 0.95, 0.62, 0.68].map((v, i) => v + (s * (i + 1) % 3) * 0.04)
-  , [s]);
-
-  return (
-    <Float speed={0.4 + (s % 5) * 0.08} floatIntensity={0.22} rotationIntensity={0}>
-      <group position={pos} scale={sc}>
-        {offsets.map((o, i) => (
-          <mesh key={i} position={o} material={CLOUD_MAT}>
-            <sphereGeometry args={[sizes[i], 11, 7]} />
-          </mesh>
-        ))}
-      </group>
-    </Float>
-  );
-}
-
-// ─── Crystal ─────────────────────────────────────────────────────────────────
-function Crystal({ pos, sc = 1, col = "#88ccff", spd = 0.22 }: {
-  pos: [number,number,number]; sc?: number; col?: string; spd?: number;
-}) {
-  const ref = useRef<THREE.Mesh>(null);
-  const mat = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: col, transparent: true, opacity: 0.68,
-    roughness: 0.04, metalness: 0, transmission: 0.55,
-    thickness: 1.5, ior: 1.45,
-    clearcoat: 1, clearcoatRoughness: 0.05,
-  }), [col]);
-
-  useFrame((_, d) => {
-    if (!ref.current) return;
-    ref.current.rotation.y += d * spd;
-    ref.current.rotation.z += d * spd * 0.45;
-  });
-
-  return (
-    <Float speed={0.9 + spd} floatIntensity={0.32} rotationIntensity={0.1}>
-      <mesh ref={ref} position={pos} scale={sc} material={mat}>
-        <octahedronGeometry args={[1, 0]} />
-      </mesh>
-    </Float>
-  );
-}
-
-// ─── Light ray ───────────────────────────────────────────────────────────────
-function LightRay({ pos, rot, sc }: {
-  pos: [number,number,number]; rot: [number,number,number]; sc: [number,number];
-}) {
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({
-    color: "#c8e8ff", transparent: true, opacity: 0.04,
-    side: THREE.DoubleSide, depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }), []);
-  return (
-    <mesh position={pos} rotation={rot} material={mat}>
-      <planeGeometry args={[sc[0], sc[1]]} />
-    </mesh>
-  );
-}
-
-// ─── Scene ────────────────────────────────────────────────────────────────────
-function Scene({ scroll, mouse }: {
-  scroll: React.MutableRefObject<number>;
-  mouse: React.MutableRefObject<{ x: number; y: number }>;
-}) {
-  return (
-    <>
-      {/* @ts-expect-error – R3F fog primitive */}
-      <fog attach="fog" color="#8ec8f0" near={35} far={95} />
-      <CameraRig scroll={scroll} mouse={mouse} />
-
-      <Sky distance={450000} sunPosition={[2, 0.08, -1.5]}
-        turbidity={5} rayleigh={2.2}
-        mieCoefficient={0.006} mieDirectionalG={0.88} />
-
-      <ambientLight intensity={1.5} color="#e0f0ff" />
-      <directionalLight position={[8, 14, 5]} intensity={1.8} color="#fff8e0" />
-      <directionalLight position={[-6, 4, -8]} intensity={0.55} color="#9dd4ff" />
-      <pointLight position={[10, 8, -5]} intensity={0.6} color="#6bb8f5" />
-
-      {/* Light rays */}
-      <LightRay pos={[4, 6, -12]} rot={[0, 0.3, 0.15]} sc={[1.5, 18]} />
-      <LightRay pos={[12, 8, -14]} rot={[0, -0.2, 0.08]} sc={[1.2, 20]} />
-      <LightRay pos={[20, 7, -12]} rot={[0, 0.15, -0.1]} sc={[1.8, 16]} />
-
-      {/* Clouds – 3 panel widths */}
-      <CloudPuff pos={[-4, 4.5, -20]} sc={2.4} s={1} />
-      <CloudPuff pos={[0, 6, -24]} sc={3.0} s={2} />
-      <CloudPuff pos={[3, 3.2, -15]} sc={1.7} s={3} />
-      <CloudPuff pos={[6, 6.5, -22]} sc={3.2} s={4} />
-      <CloudPuff pos={[9, 4, -17]} sc={2.0} s={5} />
-      <CloudPuff pos={[11, 7, -26]} sc={4.0} s={6} />
-      <CloudPuff pos={[14, 3.5, -16]} sc={1.9} s={7} />
-      <CloudPuff pos={[17, 6, -22]} sc={2.8} s={8} />
-      <CloudPuff pos={[20, 4.5, -18]} sc={2.2} s={9} />
-      <CloudPuff pos={[23, 6.5, -24]} sc={3.5} s={10} />
-      {/* Background layer (deep) */}
-      <CloudPuff pos={[2, 9, -38]} sc={5.0} s={11} />
-      <CloudPuff pos={[9, 10, -42]} sc={6.0} s={12} />
-      <CloudPuff pos={[18, 8, -40]} sc={5.5} s={13} />
-
-      {/* Crystals */}
-      <Crystal pos={[1.5, 0.5, -4]} sc={0.52} col="#99d4ff" spd={0.20} />
-      <Crystal pos={[3.8, -1.1, -6]} sc={0.38} col="#b8e0ff" spd={0.34} />
-      <Crystal pos={[7, 1.4, -5]} sc={0.68} col="#77bbe8" spd={0.17} />
-      <Crystal pos={[10.5, -0.9, -4.5]} sc={0.48} col="#aad4ff" spd={0.27} />
-      <Crystal pos={[14, 0.9, -5.5]} sc={0.62} col="#88ccff" spd={0.21} />
-      <Crystal pos={[17.5, -0.6, -4]} sc={0.78} col="#66aaee" spd={0.29} />
-      <Crystal pos={[21, 0.4, -5]} sc={0.44} col="#99d4ff" spd={0.24} />
-
-      {/* Atmospheric dust */}
-      <Sparkles count={280} size={1.1} speed={0.05} opacity={0.18}
-        color="#b8deff"
-        scale={[55, 14, 22]}
-        position={[11, 2, -7] as [number,number,number]} />
-
-      {/* Faint stars (twilight hint) */}
-      <Stars radius={200} depth={70} count={700} factor={2} saturation={0} fade speed={0.2} />
-    </>
-  );
-}
-
-// ─── Panel 1 ─────────────────────────────────────────────────────────────────
-function Panel1() {
-  const wrapRef  = useRef<HTMLDivElement>(null);
-  const badgeRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
-  const subRef   = useRef<HTMLParagraphElement>(null);
-  const divRef   = useRef<HTMLDivElement>(null);
-  const hintRef  = useRef<HTMLDivElement>(null);
-
+  /* ═══ THREE.JS ════════════════════════════════════════════════════════════ */
   useEffect(() => {
-    const ctx = gsap.context(() => {
-      gsap.set([badgeRef.current, subRef.current, divRef.current, hintRef.current],
-        { autoAlpha: 0, y: 22 });
+    if (!mounted || !mountRef.current) return;
+    const el  = mountRef.current;
+    const mob = isMobile;
+    const W = window.innerWidth, H = window.innerHeight;
 
-      const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
-      tl.to(badgeRef.current, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.5);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(W, H);
+    renderer.setClearColor(0x020209);
+    el.appendChild(renderer.domElement);
 
-      if (titleRef.current) {
-        const raw = titleRef.current.textContent ?? "";
-        titleRef.current.innerHTML = raw.split("").map(
-          c => `<span class="ch" style="display:inline-block">${c}</span>`
-        ).join("");
-        gsap.set(titleRef.current.querySelectorAll(".ch"),
-          { autoAlpha: 0, y: 72, rotateY: -50, transformPerspective: 600 });
-        tl.to(titleRef.current.querySelectorAll(".ch"), {
-          autoAlpha: 1, y: 0, rotateY: 0,
-          duration: 0.65, stagger: 0.08, ease: "back.out(1.6)",
-        }, 0.7);
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x020209, 0.0012);
+
+    const camera = new THREE.PerspectiveCamera(70, W / H, 0.1, 1000);
+    camera.position.z = camZ.current;
+
+    const spr = makeSprite();
+
+    const TLEN     = 350;
+    const TRAD     = 65;
+    const HR       = 16;
+    const RING_GAP = 72;
+
+    /* ── background stars: cylindrical tunnel ── */
+    const SN = mob ? 1600 : 4800;
+    const sBuf = new Float32Array(SN * 3);
+    for (let i = 0; i < SN; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 1.5 + Math.random() * TRAD;
+      sBuf[i*3]   = Math.cos(a) * r;
+      sBuf[i*3+1] = Math.sin(a) * r;
+      sBuf[i*3+2] = camZ.current + (Math.random() - 0.5) * TLEN;
+    }
+    const sGeo = new THREE.BufferGeometry();
+    sGeo.setAttribute("position", new THREE.BufferAttribute(sBuf, 3));
+    const sMat = new THREE.PointsMaterial({
+      size: 1.2, map: spr, sizeAttenuation: true,
+      transparent: true, opacity: 0.88,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const stars = new THREE.Points(sGeo, sMat);
+    scene.add(stars);
+
+    /* ── helix: double-strand spiral for "surrounding" feel ── */
+    const HN = mob ? 90 : 260;
+    const hBuf = new Float32Array(HN * 3);
+    const hCol = new Float32Array(HN * 3);
+    for (let i = 0; i < HN; i++) {
+      const t   = i / HN;
+      const ang = t * Math.PI * 2 * 5;
+      const off = (i % 2) * Math.PI * 0.3;
+      hBuf[i*3]   = Math.cos(ang + off) * HR;
+      hBuf[i*3+1] = Math.sin(ang + off) * HR;
+      hBuf[i*3+2] = camZ.current + t * TLEN - TLEN / 2;
+      hCol[i*3]   = 0.25 + Math.random() * 0.15;
+      hCol[i*3+1] = 0.50 + Math.random() * 0.25;
+      hCol[i*3+2] = 0.92 + Math.random() * 0.08;
+    }
+    const hGeo = new THREE.BufferGeometry();
+    hGeo.setAttribute("position", new THREE.BufferAttribute(hBuf, 3));
+    hGeo.setAttribute("color",    new THREE.BufferAttribute(hCol, 3));
+    const hMat = new THREE.PointsMaterial({
+      size: 1.0, map: spr, sizeAttenuation: true, vertexColors: true,
+      transparent: true, opacity: 0.62,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const helix = new THREE.Points(hGeo, hMat);
+    scene.add(helix);
+
+    /* ── nebula ── */
+    const NN = mob ? 150 : 420;
+    const nBuf = new Float32Array(NN * 3);
+    const nCol = new Float32Array(NN * 3);
+    const NP: [number,number,number][] = [
+      [0.07,0.04,0.28],[0.03,0.06,0.22],[0.12,0.03,0.18],[0.02,0.10,0.24],
+    ];
+    for (let i = 0; i < NN; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 18 + Math.random() * 55;
+      nBuf[i*3]   = Math.cos(a) * r;
+      nBuf[i*3+1] = Math.sin(a) * r;
+      nBuf[i*3+2] = camZ.current + (Math.random() - 0.5) * TLEN;
+      const c = NP[i % NP.length];
+      nCol[i*3] = c[0]; nCol[i*3+1] = c[1]; nCol[i*3+2] = c[2];
+    }
+    const nGeo = new THREE.BufferGeometry();
+    nGeo.setAttribute("position", new THREE.BufferAttribute(nBuf, 3));
+    nGeo.setAttribute("color",    new THREE.BufferAttribute(nCol, 3));
+    const nMat = new THREE.PointsMaterial({
+      size: 24, map: spr, sizeAttenuation: true, vertexColors: true,
+      transparent: true, opacity: 0.14,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const nebula = new THREE.Points(nGeo, nMat);
+    scene.add(nebula);
+
+    /* ── energy rings: fly through them (desktop only) ── */
+    type RObj = { pts: THREE.Points; mat: THREE.PointsMaterial; geo: THREE.BufferGeometry };
+    const rings: RObj[] = [];
+    if (!mob) {
+      const rdefs = [
+        { r: 20, col: new THREE.Color(0.32, 0.52, 0.90) },
+        { r: 25, col: new THREE.Color(0.44, 0.32, 0.82) },
+        { r: 18, col: new THREE.Color(0.22, 0.60, 0.92) },
+      ];
+      rdefs.forEach(({ r, col }, ri) => {
+        const N = 90, buf = new Float32Array(N * 3);
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2;
+          const rr = r + Math.sin(a * 5) * 1.6;
+          buf[i*3] = Math.cos(a) * rr; buf[i*3+1] = Math.sin(a) * rr; buf[i*3+2] = 0;
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(buf, 3));
+        const mat = new THREE.PointsMaterial({
+          size: 1.0, map: spr, sizeAttenuation: true, color: col,
+          transparent: true, opacity: 0.38,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const pts = new THREE.Points(geo, mat);
+        pts.position.z = camZ.current - 45 - ri * RING_GAP;
+        scene.add(pts);
+        rings.push({ pts, mat, geo });
+      });
+    }
+
+    /* ═════ RAF ══════════════════════════════════════════════════════════════ */
+    const lerpF = mob ? 0.10 : 0.055;
+    let tt = 0;
+
+    function tick() {
+      rafId.current = requestAnimationFrame(tick);
+      tt += 0.001;
+
+      scrollV.current *= 0.88;
+      targetP.current += scrollV.current;
+      scrollP.current  = lerp(scrollP.current, targetP.current, lerpF);
+
+      const lp = ((scrollP.current % 1) + 1) % 1;
+
+      /* seamless loop: detect crossing in both directions, snap camera silently */
+      const fwd = prevLP.current > 0.92 && lp < 0.08;
+      const bwd = prevLP.current < 0.08 && lp > 0.92;
+      prevLP.current = lp;
+
+      const tgtZ = 80 - lp * 200;
+      if (fwd || bwd) camZ.current = tgtZ;   // instant snap, recycled stars hide the cut
+      camZ.current = lerp(camZ.current, tgtZ, 0.06);
+      camera.position.z = camZ.current;
+
+      camera.position.x = lerp(camera.position.x, mouseX.current * 4,   0.04);
+      camera.position.y = lerp(camera.position.y, mouseY.current * 3,   0.04);
+      camera.rotation.z = lerp(camera.rotation.z, scrollV.current * 1.8, 0.06);
+
+      const speed = Math.abs(scrollV.current);
+      camera.fov = lerp(camera.fov, 70 + speed * 24, 0.07);
+      camera.updateProjectionMatrix();
+
+      stars.rotation.z  = tt * 0.055;
+      stars.rotation.y  = tt * 0.040;
+      nebula.rotation.z = tt * 0.025;
+      nebula.rotation.y = tt * 0.018;
+      helix.rotation.z  = tt * 0.10;
+
+      /* recycle all particles around camera for infinite tunnel */
+      const sA = sGeo.attributes.position.array as Float32Array;
+      for (let i = 0; i < SN; i++) {
+        const z = sA[i*3+2];
+        if (z > camera.position.z + TLEN * 0.55) sA[i*3+2] -= TLEN;
+        if (z < camera.position.z - TLEN * 0.55) sA[i*3+2] += TLEN;
+      }
+      sGeo.attributes.position.needsUpdate = true;
+
+      const hA = hGeo.attributes.position.array as Float32Array;
+      for (let i = 0; i < HN; i++) {
+        const z = hA[i*3+2];
+        if (z > camera.position.z + TLEN * 0.55) hA[i*3+2] -= TLEN;
+        if (z < camera.position.z - TLEN * 0.55) hA[i*3+2] += TLEN;
+      }
+      hGeo.attributes.position.needsUpdate = true;
+
+      const nA = nGeo.attributes.position.array as Float32Array;
+      for (let i = 0; i < NN; i++) {
+        const z = nA[i*3+2];
+        if (z > camera.position.z + TLEN * 0.55) nA[i*3+2] -= TLEN;
+        if (z < camera.position.z - TLEN * 0.55) nA[i*3+2] += TLEN;
+      }
+      nGeo.attributes.position.needsUpdate = true;
+
+      rings.forEach((r, ri) => {
+        if (r.pts.position.z > camera.position.z + 10)
+          r.pts.position.z = camera.position.z - 50 - ri * RING_GAP;
+        r.pts.rotation.z += 0.003 * (ri % 2 === 0 ? 1 : -1);
+        r.mat.opacity = Math.min(0.48, 0.22 + speed * 14);
+      });
+
+      /* section opacity — direct DOM, no React re-render */
+      if (sec1.current) {
+        const op = secOp(1, lp);
+        sec1.current.style.opacity       = String(op.toFixed(4));
+        sec1.current.style.transform     = `translateY(${((1 - Math.min(op * 2, 1)) * 26).toFixed(2)}px)`;
+        sec1.current.style.pointerEvents = op > 0.1 ? "auto" : "none";
+      }
+      if (heroLive.current && sec0.current) {
+        const op = secOp(0, lp);
+        sec0.current.style.opacity       = String(op.toFixed(4));
+        sec0.current.style.transform     = `translateY(${((1 - Math.min(op * 2, 1)) * 26).toFixed(2)}px)`;
+        sec0.current.style.pointerEvents = op > 0.1 ? "auto" : "none";
       }
 
-      tl.to(subRef.current,  { autoAlpha: 1, y: 0, duration: 0.75 }, 1.3);
-      tl.to(divRef.current,  {
-        autoAlpha: 1, y: 0, scaleX: 1, duration: 0.55,
-        transformOrigin: "left center",
-      }, 1.65);
-      tl.to(hintRef.current, { autoAlpha: 1, y: 0, duration: 0.6 }, 1.85);
+      renderer.render(scene, camera);
+    }
+    tick();
 
-      gsap.to(wrapRef.current, {
-        y: -8, duration: 4.5, ease: "sine.inOut", yoyo: true, repeat: -1,
-      });
+    const onResize = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    const onMouse = (e: MouseEvent) => {
+      mouseX.current =  (e.clientX / window.innerWidth  - 0.5) * 2;
+      mouseY.current = -(e.clientY / window.innerHeight - 0.5) * 2;
+    };
+    window.addEventListener("resize",    onResize);
+    window.addEventListener("mousemove", onMouse, { passive: true });
+
+    return () => {
+      cancelAnimationFrame(rafId.current);
+      window.removeEventListener("resize",    onResize);
+      window.removeEventListener("mousemove", onMouse);
+      sGeo.dispose(); sMat.dispose();
+      hGeo.dispose(); hMat.dispose();
+      nGeo.dispose(); nMat.dispose();
+      rings.forEach(r => { r.geo.dispose(); r.mat.dispose(); });
+      spr.dispose(); renderer.dispose();
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+    };
+  }, [mounted, isMobile]);
+
+  /* ═══ PRELOADER + HERO ENTRANCE ═══════════════════════════════════════════ */
+  useEffect(() => {
+    if (!mounted) return;
+    const obj = { n: 0 };
+    const anim = animate(obj, {
+      n: 100, duration: 2700, ease: "inOutSine",
+      onUpdate: () => {
+        const v = Math.round(obj.n);
+        if (loaderNumRef.current)
+          loaderNumRef.current.textContent = String(v).padStart(3, "0");
+        if (loaderBarRef.current)
+          loaderBarRef.current.style.transform = `scaleX(${obj.n / 100})`;
+      },
+      onComplete: () => {
+        if (!loaderRef.current) return;
+        animate(loaderRef.current, {
+          opacity: [1, 0], duration: 1000, ease: "outQuart",
+          onComplete: () => {
+            setLoaderDone(true);
+            if (!sec0.current) return;
+            sec0.current.style.opacity       = "1";
+            sec0.current.style.transform     = "translateY(0)";
+            sec0.current.style.pointerEvents = "auto";
+            const tl = gsap.timeline({ onComplete: () => { heroLive.current = true; } });
+            tl.set(".cs-hero-el",  { opacity: 0, y: 22 });
+            tl.to(".cs-hero-el", { opacity: 1, y: 0, duration: 1.0, ease: "power4.out", stagger: 0.13 });
+          },
+        });
+      },
     });
-    return () => ctx.revert();
-  }, []);
+    return () => { try { anim.pause(); } catch { /* done */ } };
+  }, [mounted]);
 
-  return (
-    <div className="w-screen h-screen flex-shrink-0 flex items-center"
-      style={{ paddingLeft: "max(52px, 6.5vw)", scrollSnapAlign: "start" }}>
-      <div ref={wrapRef} className="max-w-[500px]" style={{ perspective: "800px" }}>
-
-        <div ref={badgeRef}
-          className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mb-9"
-          style={{ border: "1px solid rgba(255,255,255,0.24)", background: "rgba(255,255,255,0.11)", backdropFilter: "blur(14px)" }}>
-          <span className="w-1.5 h-1.5 rounded-full"
-            style={{ background: "#38bdf8", boxShadow: "0 0 8px 2px rgba(56,189,248,0.85)", animation: "pulse 1.9s infinite" }} />
-          <span className="text-[10px] font-bold tracking-[0.32em] uppercase"
-            style={{ color: "rgba(255,255,255,0.72)" }}>Coming Soon</span>
-        </div>
-
-        <h1 ref={titleRef} className="font-black leading-none mb-7 select-none"
-          style={{
-            fontSize: "clamp(4.5rem, 12vw, 9.5rem)",
-            background: "linear-gradient(135deg,#ffffff 0%,#c4e2fa 30%,#6ab5e8 65%,#3a8fd4 100%)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-            filter: "drop-shadow(0 4px 30px rgba(70,160,255,0.48))",
-            letterSpacing: "-0.03em",
-          }}>
-          AoiXsy
-        </h1>
-
-        <p ref={subRef} className="text-[15px] leading-[1.78] mb-8"
-          style={{ color: "rgba(255,255,255,0.70)", maxWidth: "360px", textShadow: "0 2px 16px rgba(0,40,80,0.45)" }}>
-          A new portfolio experience is{" "}
-          <span style={{ color: "#90d5ff", fontWeight: 600 }}>launching soon.</span><br />
-          Something beautiful is being crafted.
-        </p>
-
-        <div ref={divRef} className="flex items-center gap-3 mb-9"
-          style={{ transform: "scaleX(0)" }}>
-          <div className="h-px w-16"
-            style={{ background: "linear-gradient(to right,transparent,rgba(255,255,255,0.30))" }} />
-          <span className="w-1.5 h-1.5 rounded-full"
-            style={{ background: "rgba(148,213,255,0.75)" }} />
-          <span className="w-1 h-1 rounded-full"
-            style={{ background: "rgba(255,255,255,0.45)" }} />
-          <span className="w-1.5 h-1.5 rounded-full"
-            style={{ background: "rgba(148,213,255,0.75)" }} />
-          <div className="h-px w-10"
-            style={{ background: "linear-gradient(to right,rgba(255,255,255,0.30),transparent)" }} />
-        </div>
-
-        <div ref={hintRef} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] tracking-[0.30em] uppercase"
-              style={{ color: "rgba(255,255,255,0.30)" }}>Scroll to explore</span>
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
-              style={{ color: "rgba(255,255,255,0.28)" }}>
-              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor"
-                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <p className="text-[10px] mt-5" style={{ color: "rgba(255,255,255,0.15)" }}>
-            © {new Date().getFullYear()} Flexsy Bilbis Triwibowo
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Panel 2 ─────────────────────────────────────────────────────────────────
-function Panel2({ visible }: { visible: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
+  /* ═══ WHEEL — slower sensitivity for a longer perceived journey ═══════════ */
   useEffect(() => {
-    if (!visible) return;
-    gsap.fromTo(ref.current,
-      { autoAlpha: 0, y: 36 },
-      { autoAlpha: 1, y: 0, duration: 1.1, ease: "power3.out", delay: 0.15 }
-    );
-  }, [visible]);
-
-  return (
-    <div className="w-screen h-screen flex-shrink-0 flex items-center justify-center"
-      style={{ scrollSnapAlign: "start" }}>
-      <div ref={ref} className="text-center px-10" style={{ opacity: 0 }}>
-        <p className="font-light text-[10px] tracking-[0.55em] uppercase mb-8"
-          style={{ color: "rgba(255,255,255,0.28)" }}>In progress</p>
-        <p className="font-black leading-[0.88]"
-          style={{
-            fontSize: "clamp(3.5rem, 10vw, 8rem)",
-            color: "rgba(255,255,255,0.055)",
-            letterSpacing: "-0.04em",
-            textShadow: "0 0 120px rgba(120,200,255,0.20)",
-          }}>
-          Something<br />beautiful.
-        </p>
-        <p className="text-[10px] mt-10 tracking-[0.35em] uppercase"
-          style={{ color: "rgba(255,255,255,0.14)" }}>— stay tuned</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Panel 3 ─────────────────────────────────────────────────────────────────
-function Panel3({ visible }: { visible: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!visible) return;
-    gsap.fromTo(ref.current,
-      { autoAlpha: 0, y: 24 },
-      { autoAlpha: 1, y: 0, duration: 1.0, ease: "power3.out", delay: 0.2 }
-    );
-  }, [visible]);
-
-  return (
-    <div className="w-screen h-screen flex-shrink-0 flex items-end justify-end"
-      style={{ scrollSnapAlign: "start", paddingRight: "max(52px, 6.5vw)", paddingBottom: "12vh" }}>
-      <div ref={ref} className="text-right" style={{ opacity: 0 }}>
-        <p className="font-black"
-          style={{
-            fontSize: "clamp(2.2rem, 5.5vw, 4.5rem)",
-            color: "rgba(255,255,255,0.045)",
-            letterSpacing: "-0.035em",
-          }}>2025</p>
-        <p className="text-[10px] mt-2 tracking-[0.28em] uppercase"
-          style={{ color: "rgba(255,255,255,0.13)" }}>
-          aoixsy-portfolio.vercel.app
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Click ripple ─────────────────────────────────────────────────────────────
-function Ripple({ x, y, id, onDone }: { x: number; y: number; id: number; onDone: (id: number) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    gsap.fromTo(el,
-      { scale: 0, opacity: 0.55 },
-      { scale: 3.5, opacity: 0, duration: 0.75, ease: "power2.out",
-        onComplete: () => onDone(id) }
-    );
-  }, [id, onDone]);
-
-  return (
-    <div ref={ref} className="pointer-events-none fixed z-30 rounded-full"
-      style={{
-        width: 60, height: 60,
-        left: x - 30, top: y - 30,
-        border: "1.5px solid rgba(180,224,255,0.6)",
-        boxShadow: "0 0 12px rgba(120,200,255,0.3)",
-        transformOrigin: "center",
-      }} />
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-export default function ComingSoon() {
-  const scrollRef   = useRef<HTMLDivElement>(null);
-  const scrollProg  = useRef(0);
-  const mouseRef    = useRef({ x: 0, y: 0 });
-  const p2shown     = useRef(false);
-  const p3shown     = useRef(false);
-
-  const [mounted,  setMounted]  = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [p2vis, setP2Vis]       = useState(false);
-  const [p3vis, setP3Vis]       = useState(false);
-  const [ripples, setRipples]   = useState<{ x: number; y: number; id: number }[]>([]);
-  const rippleId = useRef(0);
-
-  useEffect(() => {
-    setMounted(true);
-    const onMove = (e: MouseEvent) => {
-      mouseRef.current.x =  (e.clientX / window.innerWidth  - 0.5) * 2;
-      mouseRef.current.y = -(e.clientY / window.innerHeight - 0.5) * 2;
+    if (!mounted || isMobile) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const raw = e.deltaMode === 0 ? e.deltaY : e.deltaY * 28;
+      // 0.000060 sensitivity → ~20 scroll events to traverse full loop
+      scrollV.current = clamp(scrollV.current + raw * 0.000060, -0.006, 0.006);
     };
-    window.addEventListener("mousemove", onMove, { passive: true });
-    return () => window.removeEventListener("mousemove", onMove);
-  }, []);
-
-  // Keyboard navigation
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = scrollRef.current;
-      if (!el) return;
-      const w = window.innerWidth;
-      if (e.key === "ArrowRight") el.scrollTo({ left: el.scrollLeft + w, behavior: "smooth" });
-      if (e.key === "ArrowLeft")  el.scrollTo({ left: el.scrollLeft - w, behavior: "smooth" });
+      if (e.key === "ArrowDown" || e.key === "ArrowRight")
+        scrollV.current = clamp(scrollV.current + 0.003, -0.006, 0.006);
+      if (e.key === "ArrowUp"   || e.key === "ArrowLeft")
+        scrollV.current = clamp(scrollV.current - 0.003, -0.006, 0.006);
     };
+    window.addEventListener("wheel",   onWheel, { passive: false });
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    return () => {
+      window.removeEventListener("wheel",   onWheel);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [mounted, isMobile]);
 
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const max = el.scrollWidth - el.clientWidth;
-    const p   = max > 0 ? el.scrollLeft / max : 0;
-    scrollProg.current = p;
-    setProgress(p);
-    if (p > 0.28 && !p2shown.current) { p2shown.current = true; setP2Vis(true); }
-    if (p > 0.64 && !p3shown.current) { p3shown.current = true; setP3Vis(true); }
-  }, []);
+  /* ═══ MOBILE SCROLL ═══════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (!mounted || !isMobile) return;
+    const onScroll = () => {
+      const max = document.body.scrollHeight - window.innerHeight;
+      if (max > 0) targetP.current = window.scrollY / max;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [mounted, isMobile]);
 
-  const handleTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    const el = scrollRef.current;
-    if (el) el.scrollTo({ left: ratio * (el.scrollWidth - el.clientWidth), behavior: "smooth" });
-  }, []);
+  /* ═══ SHARED STYLES ════════════════════════════════════════════════════════ */
+  const fixedSec: React.CSSProperties = {
+    position: "fixed", inset: 0, zIndex: 10,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    opacity: 0, pointerEvents: "none",
+    willChange: "opacity, transform",
+  };
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    const id = ++rippleId.current;
-    setRipples(prev => [...prev, { x: e.clientX, y: e.clientY, id }]);
-  }, []);
-
-  const removeRipple = useCallback((id: number) => {
-    setRipples(prev => prev.filter(r => r.id !== id));
-  }, []);
-
+  /* ═══════════════════════════════ RENDER ═══════════════════════════════════ */
   return (
-    <div className="relative w-screen h-screen overflow-hidden" onClick={handleClick}>
+    <div style={{ background: "#020209", position: "relative" }}>
 
-      {/* ── hide native scrollbar globally for this page ──────────── */}
       <style>{`
-        .hs-panel { scrollbar-width: none; -ms-overflow-style: none; }
-        .hs-panel::-webkit-scrollbar { display: none; }
+        *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+        html, body { background:#020209; overflow-x:hidden; scrollbar-width:none; }
+        html::-webkit-scrollbar, body::-webkit-scrollbar { display:none; }
+        @media(min-width:768px){ html, body { overflow:hidden; } }
+
+        @keyframes cs-orbit-a { to { transform:rotate(360deg); } }
+        @keyframes cs-orbit-b { to { transform:rotate(-360deg); } }
+        @keyframes cs-fadein  {
+          from { opacity:0; transform:translateY(10px); }
+          to   { opacity:1; transform:translateY(0); }
+        }
+        @keyframes cs-float {
+          0%,100% { transform:translateY(0); }
+          50%     { transform:translateY(-6px); }
+        }
+        @keyframes cs-pulse-ring {
+          0%   { transform:scale(0.88); opacity:0.60; }
+          100% { transform:scale(1.55); opacity:0; }
+        }
+        @keyframes cs-nav-in {
+          from { opacity:0; transform:translateY(6px); }
+          to   { opacity:1; transform:translateY(0); }
+        }
+        .cs-nav-link {
+          font-size:9px; font-weight:700; letter-spacing:0.42em;
+          text-transform:uppercase; color:rgba(118,148,212,0.55);
+          text-decoration:none; cursor:pointer;
+          transition:color 0.25s ease;
+        }
+        .cs-nav-link:hover { color:rgba(205,222,255,0.92); }
       `}</style>
 
-      {/* ── Canvas ───────────────────────────────────────────────── */}
-      {mounted && (
-        <div className="fixed inset-0 z-0">
-          <Canvas camera={{ position: [0, 2, 15], fov: 55 }}
-            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}>
-            <Suspense fallback={null}>
-              <Scene scroll={scrollProg} mouse={mouseRef} />
-            </Suspense>
-          </Canvas>
+      {/* ═══════════════════════ PRELOADER ════════════════════════════════ */}
+      {!loaderDone && (
+        <div ref={loaderRef} style={{
+          position:"fixed", inset:0, zIndex:500, background:"#020209",
+          display:"flex", flexDirection:"column",
+          alignItems:"center", justifyContent:"center", overflow:"hidden",
+        }}>
+          {/* Ring A — 18s CW */}
+          <div style={{
+            position:"absolute", width:280, height:280, borderRadius:"50%",
+            border:"1px solid rgba(74,111,212,0.10)", animation:"cs-orbit-a 18s linear infinite",
+          }}>
+            <div style={{
+              position:"absolute", top:-4, left:"calc(50% - 4px)",
+              width:8, height:8, borderRadius:"50%", background:"#4a6fd4",
+              boxShadow:"0 0 14px 4px rgba(74,111,212,0.90)",
+            }} />
+          </div>
+          {/* Ring B — 11s CCW */}
+          <div style={{
+            position:"absolute", width:180, height:180, borderRadius:"50%",
+            border:"1px solid rgba(114,100,169,0.08)", animation:"cs-orbit-b 11s linear infinite",
+          }}>
+            <div style={{
+              position:"absolute", bottom:-3, left:"calc(50% - 3px)",
+              width:6, height:6, borderRadius:"50%", background:"#7264a9",
+              boxShadow:"0 0 10px 3px rgba(114,100,169,0.85)",
+            }} />
+          </div>
+          {/* Ring C — 30s reverse */}
+          <div style={{
+            position:"absolute", width:380, height:380, borderRadius:"50%",
+            border:"1px solid rgba(40,65,140,0.06)", animation:"cs-orbit-a 30s linear infinite reverse",
+          }}>
+            <div style={{
+              position:"absolute", top:-2.5, right:"calc(50% - 58px)",
+              width:5, height:5, borderRadius:"50%", background:"rgba(74,111,212,0.55)",
+              boxShadow:"0 0 8px 2px rgba(74,111,212,0.50)",
+            }} />
+          </div>
+
+          <div style={{ zIndex:1, textAlign:"center", animation:"cs-fadein 0.9s ease both" }}>
+            <p style={{
+              fontSize:"clamp(2.2rem,7vw,3.6rem)", fontWeight:800, letterSpacing:"-0.04em",
+              color:"rgba(240,246,255,0.93)", marginBottom:36,
+              textShadow:"0 0 80px rgba(74,111,212,0.55)",
+            }}>AoiXsy</p>
+
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:3, marginBottom:14 }}>
+              <span ref={loaderNumRef} style={{
+                fontFamily:"ui-monospace, monospace",
+                fontSize:"clamp(0.85rem,2.5vw,1.1rem)", fontWeight:500,
+                color:"rgba(148,175,230,0.72)", letterSpacing:"0.12em",
+                minWidth:"3ch", textAlign:"right",
+              }}>000</span>
+              <span style={{ fontFamily:"ui-monospace, monospace", fontSize:"0.75rem", color:"rgba(80,108,172,0.42)" }}>%</span>
+            </div>
+
+            <div style={{ width:"min(200px,52vw)", height:1, background:"rgba(74,111,212,0.12)", overflow:"hidden" }}>
+              <div ref={loaderBarRef} style={{
+                height:"100%", width:"100%",
+                transformOrigin:"left center", transform:"scaleX(0)",
+                background:"linear-gradient(to right, rgba(74,111,212,0.28), rgba(185,212,255,0.92), rgba(74,111,212,0.28))",
+                boxShadow:"0 0 12px rgba(74,111,212,0.55)",
+              }} />
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── Gradient vignettes over sky ──────────────────────────── */}
-      <div className="fixed inset-0 pointer-events-none z-[2]"
-        style={{ background: "linear-gradient(to right, rgba(8,28,65,0.82) 0%, rgba(10,35,75,0.58) 22%, rgba(10,35,75,0.08) 52%, transparent 75%)" }} />
-      <div className="fixed inset-0 pointer-events-none z-[2]"
-        style={{ background: "linear-gradient(to bottom, rgba(5,20,50,0.42) 0%, transparent 22%, transparent 78%, rgba(4,18,44,0.68) 100%)" }} />
+      {/* Canvas */}
+      {mounted && (
+        <div ref={mountRef} style={{ position:"fixed", inset:0, zIndex:0, width:"100vw", height:"100vh" }} />
+      )}
 
-      {/* ── Panels ───────────────────────────────────────────────── */}
-      <div ref={scrollRef} onScroll={handleScroll}
-        className="hs-panel relative z-10 w-screen h-screen"
-        style={{ overflowX: "auto", overflowY: "hidden", scrollSnapType: "x mandatory" } as React.CSSProperties}>
-        <div className="flex h-screen" style={{ width: "300vw" }}>
-          <Panel1 />
-          <Panel2 visible={p2vis} />
-          <Panel3 visible={p3vis} />
+      {/* Vignette */}
+      <div style={{
+        position:"fixed", inset:0, zIndex:1, pointerEvents:"none",
+        background:"radial-gradient(ellipse at 50% 50%, transparent 22%, rgba(2,2,9,0.80) 100%)",
+      }} />
+      <div style={{
+        position:"fixed", inset:0, zIndex:1, pointerEvents:"none",
+        background:"linear-gradient(to bottom, rgba(2,2,9,0.60) 0%, transparent 18%, transparent 82%, rgba(2,2,9,0.70) 100%)",
+      }} />
+
+      {/* ═════════════════════ SECTION 0 — HERO ═══════════════════════════ */}
+      <div ref={sec0} style={fixedSec}>
+        <div style={{
+          position:"absolute", inset:0, pointerEvents:"none",
+          background:"radial-gradient(ellipse 640px 360px at 50% 50%, rgba(2,2,9,0.46) 0%, transparent 72%)",
+        }} />
+        <div style={{ textAlign:"center", padding:"0 clamp(24px,6vw,80px)", maxWidth:660, position:"relative" }}>
+
+          <div className="cs-hero-el" style={{ display:"inline-flex", alignItems:"center", gap:9, marginBottom:28, opacity:0 }}>
+            <span style={{ position:"relative", width:8, height:8, flexShrink:0 }}>
+              <span style={{
+                position:"absolute", inset:-2, borderRadius:"50%",
+                background:"rgba(74,111,212,0.35)", animation:"cs-pulse-ring 2.2s ease infinite",
+              }} />
+              <span style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#4a6fd4" }} />
+            </span>
+            <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.46em", textTransform:"uppercase", color:"rgba(152,178,232,0.74)" }}>
+              In Development
+            </span>
+          </div>
+
+          <h1 className="cs-hero-el" style={{
+            fontSize:"clamp(4.5rem,16vw,11.5rem)",
+            fontWeight:800, lineHeight:0.88, letterSpacing:"-0.045em",
+            color:"rgba(240,246,255,0.95)",
+            marginBottom:22, userSelect:"none",
+            textShadow:"0 2px 0 rgba(0,0,0,0.55), 0 0 90px rgba(74,111,212,0.38)",
+            opacity:0,
+          }}>AoiXsy</h1>
+
+          <p className="cs-hero-el" style={{
+            fontSize:"clamp(0.82rem,1.85vw,1.0rem)",
+            color:"rgba(205,220,252,0.82)",
+            letterSpacing:"0.034em",
+            maxWidth:360, margin:"0 auto 46px",
+            lineHeight:1.80, opacity:0,
+          }}>
+            A new portfolio experience.
+            <br />
+            <span style={{ color:"rgba(152,175,228,0.55)" }}>Software developer from Indonesia.</span>
+          </p>
+
+          <div className="cs-hero-el" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, opacity:0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              style={{ animation:"cs-float 2.6s ease-in-out infinite" }}>
+              <path d="M12 5v14M6 13l6 6 6-6"
+                stroke="rgba(74,111,212,0.52)"
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span style={{ fontSize:8, letterSpacing:"0.50em", textTransform:"uppercase", color:"rgba(74,111,212,0.40)" }}>
+              scroll
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* ── Click ripples ────────────────────────────────────────── */}
-      {ripples.map(r => (
-        <Ripple key={r.id} x={r.x} y={r.y} id={r.id} onDone={removeRipple} />
-      ))}
+      {/* ═════════════════════ SECTION 1 — JOURNEY ════════════════════════ */}
+      <div ref={sec1} style={fixedSec}>
+        <div style={{
+          position:"absolute", inset:0, pointerEvents:"none",
+          background:"radial-gradient(ellipse 580px 360px at 50% 50%, rgba(2,2,9,0.44) 0%, transparent 72%)",
+        }} />
+        <div style={{ textAlign:"center", padding:"0 clamp(24px,6vw,80px)", maxWidth:520, position:"relative" }}>
 
-      {/* ── Custom scrollbar ─────────────────────────────────────── */}
-      {mounted && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none"
-          style={{ padding: "0 max(52px, 5.5vw) 22px" }}>
+          <p style={{
+            fontSize:8, letterSpacing:"0.52em", textTransform:"uppercase",
+            color:"rgba(74,111,212,0.45)", marginBottom:32,
+          }}>Portfolio · 2025</p>
 
-          {/* Section labels */}
-          <div className="flex justify-between mb-3"
-            style={{ paddingRight: "2px" }}>
-            {["01", "02", "03"].map((n, i) => (
-              <span key={n}
-                className="text-[9px] tracking-[0.22em] transition-colors duration-500"
-                style={{
-                  color: (progress >= (i / 3) - 0.04 && progress < (i / 3) + 0.40)
-                    ? "rgba(255,255,255,0.52)"
-                    : "rgba(255,255,255,0.15)",
-                }}>
-                {n}
-              </span>
-            ))}
-          </div>
+          <h2 style={{
+            fontSize:"clamp(1.9rem,5.8vw,3.4rem)",
+            fontWeight:700, lineHeight:1.12, letterSpacing:"-0.032em",
+            color:"rgba(230,240,255,0.90)",
+            marginBottom:28,
+          }}>
+            Building immersive<br />digital experiences.
+          </h2>
 
-          {/* Track */}
-          <div className="relative w-full rounded-full cursor-pointer pointer-events-auto"
-            style={{ height: "2px", background: "rgba(255,255,255,0.10)" }}
-            onClick={handleTrackClick}>
-
-            {/* Active fill */}
-            <div className="absolute inset-y-0 left-0 rounded-full"
-              style={{
-                width: `${progress * 100}%`,
-                background: "linear-gradient(to right, rgba(56,189,248,0.90), rgba(186,230,253,0.95))",
-                boxShadow: "0 0 7px rgba(56,189,248,0.55)",
-                transition: "width 0.06s linear",
-              }} />
-
-            {/* Thumb */}
-            <div className="absolute top-1/2 rounded-full -translate-y-1/2 -translate-x-1/2"
-              style={{
-                left: `${progress * 100}%`,
-                width: 11, height: 11,
-                background: "white",
-                boxShadow: "0 0 10px rgba(56,189,248,1), 0 0 22px rgba(56,189,248,0.45)",
-                transition: "left 0.06s linear",
-              }} />
-          </div>
-
-          {/* Keyboard hint */}
-          <p className="text-center mt-3 text-[9px] tracking-widest"
-            style={{ color: "rgba(255,255,255,0.10)" }}>
-            ← → arrow keys
+          <p style={{
+            fontSize:"clamp(0.80rem,1.8vw,0.94rem)",
+            color:"rgba(178,200,242,0.76)",
+            lineHeight:1.82,
+          }}>
+            Full Stack Developer · Indonesia
+            <br />
+            <span style={{ color:"rgba(118,148,210,0.48)" }}>Code · Design · Motion</span>
           </p>
         </div>
+      </div>
+
+      {/* ═════════════════════ NAVIGATION (after loader) ══════════════════ */}
+      {loaderDone && (
+        <>
+          {/* Bottom-left: wordmark + year */}
+          <div style={{
+            position:"fixed",
+            bottom:"clamp(22px,3.5vh,36px)",
+            left:"clamp(22px,4vw,44px)",
+            zIndex:30,
+            animation:"cs-nav-in 1s ease 0.4s both",
+          }}>
+            <span style={{
+              fontSize:9, fontWeight:700, letterSpacing:"0.28em",
+              textTransform:"uppercase", color:"rgba(80,108,172,0.36)",
+            }}>AoiXsy · {new Date().getFullYear()}</span>
+          </div>
+
+          {/* Bottom-right: Contact + Connect */}
+          <nav style={{
+            position:"fixed",
+            bottom:"clamp(22px,3.5vh,36px)",
+            right:"clamp(22px,4vw,44px)",
+            zIndex:30,
+            display:"flex", alignItems:"center", gap:20,
+            animation:"cs-nav-in 1s ease 0.6s both",
+          }}>
+            <a
+              href="mailto:lbbpramuka@gmail.com"
+              className="cs-nav-link"
+            >Contact</a>
+            <span style={{ width:1, height:10, background:"rgba(74,111,212,0.22)" }} />
+            <a
+              href="https://github.com/bhilbis"
+              target="_blank" rel="noopener noreferrer"
+              className="cs-nav-link"
+            >Connect</a>
+          </nav>
+        </>
       )}
+
+      {/* Mobile scroll track */}
+      {isMobile && <div aria-hidden="true" style={{ height:"400vh", position:"relative", zIndex:0 }} />}
     </div>
   );
 }
